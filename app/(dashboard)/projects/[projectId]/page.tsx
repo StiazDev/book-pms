@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { doc, getDoc, collection, getDocs, addDoc, serverTimestamp, updateDoc, query, where } from "firebase/firestore";
+import { doc, getDoc, collection, getDocs, addDoc, serverTimestamp, updateDoc, query, where, arrayUnion, arrayRemove } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
 
 export default function ProjectDetailPage() {
@@ -36,12 +36,24 @@ export default function ProjectDetailPage() {
     // Stage Transition Notification
     const [stageTransitionNotif, setStageTransitionNotif] = useState<any>(null);
 
+    // Upsell Tags
+    const [upsellTags, setUpsellTags] = useState<string[]>([]);
+    const [tagInput, setTagInput] = useState("");
+    const [savingTag, setSavingTag] = useState(false);
+
+    // PDF Report
+    const [generatingReport, setGeneratingReport] = useState(false);
+
     const fetchData = useCallback(async () => {
         if (!projectId) return;
         try {
             const docRef = doc(db, "projects", projectId as string);
             const docSnap = await getDoc(docRef);
-            if (docSnap.exists()) setProject({ id: docSnap.id, ...docSnap.data() });
+            if (docSnap.exists()) {
+                const data = { id: docSnap.id, ...docSnap.data() };
+                setProject(data);
+                setUpsellTags((data as any).upsellTags || []);
+            }
 
             // Safely fetch subcollections without orderBy to avoid index errors, sort locally
             const stagesRef = collection(db, "projects", projectId as string, "stages");
@@ -202,6 +214,49 @@ export default function ProjectDetailPage() {
         }
     };
 
+    const handleAddTag = async () => {
+        const tag = tagInput.trim().toLowerCase().replace(/\s+/g, "-");
+        if (!tag || upsellTags.includes(tag)) { setTagInput(""); return; }
+        setSavingTag(true);
+        try {
+            await updateDoc(doc(db, "projects", projectId as string), { upsellTags: arrayUnion(tag) });
+            setUpsellTags(prev => [...prev, tag]);
+            setTagInput("");
+        } catch (err) { console.error("Error adding tag:", err); }
+        finally { setSavingTag(false); }
+    };
+
+    const handleRemoveTag = async (tag: string) => {
+        try {
+            await updateDoc(doc(db, "projects", projectId as string), { upsellTags: arrayRemove(tag) });
+            setUpsellTags(prev => prev.filter(t => t !== tag));
+        } catch (err) { console.error("Error removing tag:", err); }
+    };
+
+    const handleGenerateReport = async () => {
+        setGeneratingReport(true);
+        try {
+            const res = await fetch("/api/generate-report", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ projectId }),
+            });
+            if (!res.ok) throw new Error("Report generation failed");
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `status-report-${project?.title?.replace(/\s+/g, "-") || projectId}.pdf`;
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            console.error("Error generating report:", err);
+            alert("Failed to generate report. Please try again.");
+        } finally {
+            setGeneratingReport(false);
+        }
+    };
+
     if (loading) return <div className="p-8 text-sm text-gray-500">Loading project...</div>;
     if (!project) return <div className="p-8 text-sm text-red-500">Project not found.</div>;
 
@@ -213,11 +268,23 @@ export default function ProjectDetailPage() {
                     <Link href="/projects" className="text-sm text-gray-500 hover:text-black mb-4 inline-block">&larr; Back to Board</Link>
                     <div className="flex items-center justify-between">
                         <h1 className="text-3xl font-bold tracking-tight text-gray-900">{project.title}</h1>
-                        <span className={`px-3 py-1 text-xs font-semibold rounded-full uppercase tracking-wider ${project.status === 'active' ? 'bg-blue-100 text-blue-800' :
-                            project.status === 'completed' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'
-                            }`}>
-                            {project.status || 'unknown'}
-                        </span>
+                        <div className="flex items-center gap-3">
+                            <span className={`px-3 py-1 text-xs font-semibold rounded-full uppercase tracking-wider ${project.status === 'active' ? 'bg-blue-100 text-blue-800' :
+                                project.status === 'completed' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'
+                                }`}>
+                                {project.status || 'unknown'}
+                            </span>
+                            <button
+                                onClick={handleGenerateReport}
+                                disabled={generatingReport}
+                                className="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition disabled:opacity-50"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                {generatingReport ? "Generating..." : "Status Report"}
+                            </button>
+                        </div>
                     </div>
                     <p className="mt-2 text-lg text-gray-600">Author: <Link href={`/authors/${project.authorId}`} className="text-blue-600 hover:underline">{project.authorName}</Link></p>
                 </div>
@@ -230,6 +297,37 @@ export default function ProjectDetailPage() {
                     <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
                         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Expected End Date</h3>
                         <p className="mt-1 text-gray-900 font-medium">{project.expectedEndDate ? new Date(project.expectedEndDate).toLocaleDateString() : "TBD"}</p>
+                    </div>
+                </div>
+
+                {/* Upsell Tags */}
+                <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+                    <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Upsell Tags</h3>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                        {upsellTags.length === 0 && <p className="text-sm text-gray-400">No tags yet.</p>}
+                        {upsellTags.map(tag => (
+                            <span key={tag} className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-purple-100 text-purple-800 text-xs font-semibold rounded-full">
+                                {tag}
+                                <button onClick={() => handleRemoveTag(tag)} className="text-purple-500 hover:text-purple-900 leading-none" title="Remove tag">&times;</button>
+                            </span>
+                        ))}
+                    </div>
+                    <div className="flex gap-2">
+                        <input
+                            type="text"
+                            value={tagInput}
+                            onChange={e => setTagInput(e.target.value)}
+                            onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleAddTag(); } }}
+                            placeholder="e.g. marketing, social-media"
+                            className="flex-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                        <button
+                            onClick={handleAddTag}
+                            disabled={savingTag || !tagInput.trim()}
+                            className="px-3 py-1.5 text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 rounded-md transition disabled:opacity-50"
+                        >
+                            Add
+                        </button>
                     </div>
                 </div>
 

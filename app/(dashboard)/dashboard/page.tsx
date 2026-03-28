@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth/options";
 import { adminDb } from "@/lib/firebase/admin";
+import DashboardAnalytics from "../_components/dashboard-analytics";
 
 async function getStats() {
     const [authorsSnap, projectsSnap, calendarSnap, upsellsSnap] = await Promise.all([
@@ -56,6 +57,8 @@ export default async function DashboardPage() {
                     <p className="mt-2 text-4xl font-bold text-gray-900">{stats.pendingUpsells}</p>
                 </div>
             </div>
+
+            <DashboardAnalytics />
         </div>
     );
 }
