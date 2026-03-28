@@ -7,6 +7,10 @@
         {
             "path": "/api/cron/cold-client-alerts",
             "schedule": "0 9 * * *"
+        },
+        {
+            "path": "/api/cron/inbox-scan",
+            "schedule": "0 10 * * *"
         }
     ]
 }

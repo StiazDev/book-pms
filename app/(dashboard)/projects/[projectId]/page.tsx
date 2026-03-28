@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { doc, getDoc, collection, getDocs, addDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, collection, getDocs, addDoc, serverTimestamp, updateDoc, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase/client";
 
 export default function ProjectDetailPage() {
@@ -33,6 +33,9 @@ export default function ProjectDetailPage() {
     const [submittingMilestone, setSubmittingMilestone] = useState(false);
     const [milestoneForm, setMilestoneForm] = useState({ title: '', dueDate: '', linkedStageId: '' });
 
+    // Stage Transition Notification
+    const [stageTransitionNotif, setStageTransitionNotif] = useState<any>(null);
+
     const fetchData = useCallback(async () => {
         if (!projectId) return;
         try {
@@ -58,6 +61,16 @@ export default function ProjectDetailPage() {
             const smtpRef = collection(db, "smtpConfigs");
             const smtpSnap = await getDocs(smtpRef);
             setSmtpConfigs(smtpSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
+            // Check for unread stage-transition notification for this project
+            const notifQ = query(
+                collection(db, "notifications"),
+                where("projectId", "==", projectId as string),
+                where("type", "==", "stage-transition"),
+                where("read", "==", false)
+            );
+            const notifSnap = await getDocs(notifQ);
+            setStageTransitionNotif(notifSnap.empty ? null : { id: notifSnap.docs[0].id, ...notifSnap.docs[0].data() });
 
         } catch (error) {
             console.error("Error fetching project data:", error);
@@ -160,6 +173,32 @@ export default function ProjectDetailPage() {
             alert(`Error: ${error.message}`);
         } finally {
             setSubmittingComm(false);
+        }
+    };
+
+    const handleMarkStageComplete = async () => {
+        if (!projectId || !stages.length) return;
+        // Find the first in-progress or pending stage to mark complete
+        const currentStage = stages.find(s => s.status === 'in-progress') || stages.find(s => s.status === 'pending');
+        if (!currentStage) return;
+
+        try {
+            // Update the stage status
+            const stageRef = doc(db, "projects", projectId as string, "stages", currentStage.id);
+            await updateDoc(stageRef, {
+                status: 'completed',
+                completedAt: serverTimestamp()
+            });
+
+            // Mark the notification as read
+            if (stageTransitionNotif?.id) {
+                const notifRef = doc(db, "notifications", stageTransitionNotif.id);
+                await updateDoc(notifRef, { read: true });
+            }
+
+            fetchData();
+        } catch (error) {
+            console.error("Error marking stage complete:", error);
         }
     };
 
@@ -327,6 +366,23 @@ export default function ProjectDetailPage() {
 
             {/* RIGHT COLUMN - Vertical Pipeline */}
             <div className="lg:w-1/3">
+                {stageTransitionNotif && (
+                    <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-5 py-4 flex items-start gap-3">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-amber-500 mt-0.5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                        </svg>
+                        <div className="flex-1">
+                            <p className="text-sm font-semibold text-amber-800">Suggested: Mark current stage as complete</p>
+                            <p className="text-xs text-amber-700 mt-0.5">Based on recent email from author</p>
+                        </div>
+                        <button
+                            onClick={handleMarkStageComplete}
+                            className="flex-shrink-0 text-xs font-semibold text-white bg-amber-500 hover:bg-amber-600 px-3 py-1.5 rounded-md transition"
+                        >
+                            Mark Complete
+                        </button>
+                    </div>
+                )}
                 <div className="sticky top-8 rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
                     <div className="border-b px-6 py-4 flex items-center justify-between bg-gray-50">
                         <h2 className="text-lg font-bold text-gray-900">Stage Pipeline</h2>

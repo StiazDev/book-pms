@@ -51,6 +51,18 @@ export const authOptions: NextAuthOptions = {
             if (account) {
                 token.accessToken = account.access_token;
                 token.refreshToken = account.refresh_token;
+
+                // Persist tokens to Firestore so the inbox-scan cron can read them
+                if (token.email) {
+                    await adminDb.collection("users").doc(token.email as string).set(
+                        {
+                            accessToken: account.access_token,
+                            refreshToken: account.refresh_token,
+                            tokenExpiry: account.expires_at ?? null,
+                        },
+                        { merge: true }
+                    );
+                }
             }
             return token;
         },
