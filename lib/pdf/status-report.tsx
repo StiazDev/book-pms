@@ -117,8 +117,8 @@ const styles = StyleSheet.create({
 });
 
 function stageColor(status: string) {
-    if (status === "completed") return colors.green;
-    if (status === "in-progress") return colors.blue;
+    if (status === "done" || status === "completed") return colors.green;
+    if (status === "active" || status === "in-progress") return colors.blue;
     if (status === "blocked") return colors.red;
     return colors.midGray;
 }

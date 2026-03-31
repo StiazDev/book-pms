@@ -188,17 +188,44 @@ export default function ProjectDetailPage() {
         }
     };
 
+    const handleToggleStageStatus = async (stageId: string, currentStatus: string) => {
+        if (!projectId) return;
+
+        const statusMap: Record<string, string> = {
+            'pending': 'active',
+            'active': 'done',
+            'done': 'pending'
+        };
+
+        const newStatus = statusMap[currentStatus] || 'pending';
+        const updateData: any = { status: newStatus };
+
+        if (newStatus === 'active') {
+            updateData.startedAt = serverTimestamp();
+        } else if (newStatus === 'done') {
+            updateData.completedAt = serverTimestamp();
+        }
+
+        try {
+            const stageRef = doc(db, "projects", projectId as string, "stages", stageId);
+            await updateDoc(stageRef, updateData);
+            fetchData();
+        } catch (error) {
+            console.error("Error updating stage status:", error);
+        }
+    };
+
     const handleMarkStageComplete = async () => {
         if (!projectId || !stages.length) return;
-        // Find the first in-progress or pending stage to mark complete
-        const currentStage = stages.find(s => s.status === 'in-progress') || stages.find(s => s.status === 'pending');
+        // Find the first active or pending stage to mark complete
+        const currentStage = stages.find(s => s.status === 'active') || stages.find(s => s.status === 'pending');
         if (!currentStage) return;
 
         try {
             // Update the stage status
             const stageRef = doc(db, "projects", projectId as string, "stages", currentStage.id);
             await updateDoc(stageRef, {
-                status: 'completed',
+                status: 'done',
                 completedAt: serverTimestamp()
             });
 
@@ -531,14 +558,39 @@ export default function ProjectDetailPage() {
                                 <ul className="space-y-6 relative z-10">
                                     {stages.map((stage, i) => (
                                         <li key={stage.id} className="flex gap-4 items-start">
-                                            <div className={`mt-0.5 flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center border-2 bg-white ${stage.status === 'completed' ? 'border-green-500 text-green-500' :
-                                                stage.status === 'in-progress' ? 'border-blue-500 text-blue-500' : 'border-gray-300'
-                                                }`}>
-                                                {stage.status === 'completed' && <svg className="w-3 h-3 fill-current" viewBox="0 0 20 20"><path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" /></svg>}
-                                            </div>
+                                            <button
+                                                onClick={() => handleToggleStageStatus(stage.id, stage.status)}
+                                                className={`mt-0.5 flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center border-2 bg-white transition-colors hover:shadow-md ${stage.status === 'done' ? 'border-green-500 bg-green-500 text-white' :
+                                                    stage.status === 'active' ? 'border-blue-500 bg-blue-500 text-white' : 'border-gray-300'
+                                                    }`}
+                                            >
+                                                {stage.status === 'done' && (
+                                                    <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 20 20">
+                                                        <path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" />
+                                                    </svg>
+                                                )}
+                                                {stage.status === 'active' && (
+                                                    <div className="w-2.5 h-2.5 rounded-full bg-white opacity-40 animate-pulse"></div>
+                                                )}
+                                            </button>
                                             <div>
-                                                <p className={`font-medium ${stage.status === 'completed' ? 'text-gray-500' : 'text-gray-900'}`}>{stage.name || "Unnamed Stage"}</p>
-                                                <p className="text-xs text-gray-500 mt-0.5">{stage.description}</p>
+                                                <div className="flex items-center gap-2">
+                                                    <p className={`font-medium ${stage.status === 'done' ? 'text-gray-500' : 'text-gray-900'}`}>{stage.name || "Unnamed Stage"}</p>
+                                                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-tight ${stage.status === 'done' ? 'bg-green-100 text-green-700' :
+                                                        stage.status === 'active' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'
+                                                        }`}>
+                                                        {stage.status || 'pending'}
+                                                    </span>
+                                                </div>
+                                                {stage.expectedDuration && (
+                                                    <p className="text-[10px] font-semibold text-gray-400 flex items-center gap-1 mt-0.5">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                        </svg>
+                                                        {stage.expectedDuration} days
+                                                    </p>
+                                                )}
+                                                <p className="text-xs text-gray-500 mt-1">{stage.description}</p>
                                             </div>
                                         </li>
                                     ))}
